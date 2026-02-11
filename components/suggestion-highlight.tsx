@@ -117,13 +117,24 @@ export function SuggestionHighlight({
 
   if (!activeSuggestion) return null;
 
-  return createPortal(
-    <div
-      className="fixed bg-white border border-gray-200 rounded-lg shadow-xl p-4 z-50 min-w-[300px] max-w-[400px]"
-      style={{
+  // Calculate responsive position
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+  const popoverStyle = isMobile
+    ? { 
+        bottom: '1rem',
+        left: '1rem',
+        right: '1rem',
+        top: 'auto',
+      }
+    : {
         top: popoverPos.top,
         left: Math.min(popoverPos.left, window.innerWidth - 420),
-      }}
+      };
+
+  return createPortal(
+    <div
+      className="fixed bg-white border border-gray-200 rounded-lg shadow-xl p-4 z-50 sm:min-w-[300px] sm:max-w-[400px]"
+      style={popoverStyle}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="space-y-3 mb-4">

@@ -1,72 +1,99 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { extractBearerToken, validateApiToken } from '@/lib/api-auth';
+import { sql } from '@/lib/db';
 
-const OPENCLAW_URL = process.env.OPENCLAW_URL || 'https://jean-bot.tailf99986.ts.net';
-const OPENCLAW_TOKEN = process.env.OPENCLAW_TOKEN || '';
+const OPENCLAW_URL = process.env.OPENCLAW_URL || 'http://10.0.1.1:18789';
 
 /**
- * POST /api/chat
- * Proxy chat requests to OpenClaw gateway
+ * POST /api/chat - Send a message to OpenClaw and get a response
+ * 
+ * Body: { message: string, draftId?: string }
+ * 
+ * If draftId is provided, includes document context in the message.
  */
 export async function POST(request: NextRequest) {
+  // Validate token
+  const token = extractBearerToken(request);
+  if (!token) {
+    return NextResponse.json({ error: 'Missing authorization token' }, { status: 401 });
+  }
+
+  const userId = await validateApiToken(token);
+  if (!userId) {
+    return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+  }
+
   try {
     const body = await request.json();
-    
-    const response = await fetch(`${OPENCLAW_URL}/v1/chat/completions`, {
+    const { message, draftId } = body;
+
+    if (!message || typeof message !== 'string') {
+      return NextResponse.json({ error: 'Message is required' }, { status: 400 });
+    }
+
+    // If draftId provided, get document context
+    let context = '';
+    if (draftId) {
+      const result = await sql`
+        SELECT title, content FROM drafts 
+        WHERE id = ${draftId} AND user_id = ${userId}
+      `;
+      if (result.rows.length > 0) {
+        const draft = result.rows[0];
+        const contentText = extractText(draft.content);
+        context = `\n\n[Document: "${draft.title}"]\n${contentText}\n\n[End of document]\n\n`;
+      }
+    }
+
+    // Build the prompt for OpenClaw
+    const fullMessage = context 
+      ? `I'm working on a document. Here's the context:${context}User question: ${message}`
+      : message;
+
+    // Call OpenClaw API
+    const response = await fetch(`${OPENCLAW_URL}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(OPENCLAW_TOKEN && { 'Authorization': `Bearer ${OPENCLAW_TOKEN}` }),
       },
       body: JSON.stringify({
-        model: body.model || 'default',
-        messages: body.messages || [],
-        stream: body.stream ?? true,
+        message: fullMessage,
+        // Could add session management here
       }),
     });
 
     if (!response.ok) {
-      return NextResponse.json(
-        { error: `OpenClaw error: ${response.status} ${response.statusText}` },
-        { status: response.status }
-      );
+      const error = await response.text();
+      console.error('OpenClaw error:', error);
+      return NextResponse.json({ error: 'Chat service unavailable' }, { status: 502 });
     }
 
-    // If streaming, pass through the stream
-    if (body.stream !== false && response.body) {
-      return new Response(response.body, {
-        headers: {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
-          'Connection': 'keep-alive',
-        },
-      });
-    }
-
-    // Non-streaming response
     const data = await response.json();
     return NextResponse.json(data);
-    
+
   } catch (error) {
-    console.error('Chat proxy error:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Chat proxy error' },
-      { status: 500 }
-    );
+    console.error('Chat error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 /**
- * GET /api/chat
- * Health check for chat endpoint
+ * Extract plain text from TipTap JSON content
  */
-export async function GET() {
-  try {
-    const response = await fetch(OPENCLAW_URL, { method: 'HEAD' });
-    return NextResponse.json({ 
-      status: response.ok ? 'connected' : 'disconnected',
-      url: OPENCLAW_URL.replace(/\/\/.*@/, '//***@') // Redact credentials
-    });
-  } catch {
-    return NextResponse.json({ status: 'disconnected' });
+function extractText(content: any): string {
+  if (!content || !content.content) return '';
+  
+  const texts: string[] = [];
+  
+  function traverse(node: any) {
+    if (node.type === 'text' && node.text) {
+      texts.push(node.text);
+    }
+    if (node.content) {
+      node.content.forEach(traverse);
+    }
   }
+  
+  content.content.forEach(traverse);
+  return texts.join(' ');
 }

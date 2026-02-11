@@ -5,8 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { Editor } from '@/components/editor';
 import { ToastContainer, showToast } from '@/components/toast';
 import { SuggestionHighlight } from '@/components/suggestion-highlight';
-import { Save, FileText, Trash2, Plus, Download, Copy, RefreshCw, Pencil, Check, ArrowLeft, Lightbulb } from 'lucide-react';
+import { Save, FileText, Trash2, Plus, Download, Copy, RefreshCw, Pencil, Check, ArrowLeft, Lightbulb, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { Chat, ChatButton } from '@/components/chat';
 
 interface Draft {
   id: string;
@@ -40,6 +41,7 @@ export default function DraftPage() {
   const [showExport, setShowExport] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editorElement, setEditorElement] = useState<HTMLElement | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
   
   const titleInputRef = useRef<HTMLInputElement>(null);
   const lastKnownUpdate = useRef<string | null>(null);
@@ -343,6 +345,15 @@ export default function DraftPage() {
             </button>
             
             <button
+              onClick={() => setIsChatOpen(true)}
+              className="hidden sm:flex p-2 text-gray-600 hover:bg-gray-100 rounded-lg items-center gap-2"
+              title="Chat with Jean"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span className="text-sm">Chat</span>
+            </button>
+            
+            <button
               onClick={saveDraft}
               disabled={isSaving}
               className="p-2 sm:px-4 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1 sm:gap-2"
@@ -401,6 +412,19 @@ export default function DraftPage() {
       </div>
       
       <ToastContainer />
+      
+      {/* Chat */}
+      {token && (
+        <>
+          <ChatButton onClick={() => setIsChatOpen(true)} />
+          <Chat
+            token={token}
+            draftId={draftId}
+            isOpen={isChatOpen}
+            onClose={() => setIsChatOpen(false)}
+          />
+        </>
+      )}
     </div>
   );
 }
