@@ -62,6 +62,7 @@ export function Editor({ content, onChange, editable = true }: EditorProps) {
       ],
     },
     editable,
+    immediatelyRender: false,
     onUpdate: ({ editor }) => {
       if (onChange) {
         onChange(editor.getJSON());
