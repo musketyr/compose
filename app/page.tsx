@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Editor } from '@/components/editor';
-import { Chat } from '@/components/chat';
 import { ToastContainer, showToast } from '@/components/toast';
-import { Save, FileText, Trash2, Plus, Download, Copy, RefreshCw } from 'lucide-react';
+import { Save, FileText, Trash2, Plus, Download, Copy, RefreshCw, Pencil, Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 interface Draft {
@@ -21,23 +20,22 @@ export default function Home() {
   const [title, setTitle] = useState('Untitled');
   const [content, setContent] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [showDrafts, setShowDrafts] = useState(false);
   const [token, setToken] = useState<string>('');
   const [showExport, setShowExport] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Load token and drafts
   useEffect(() => {
     const savedToken = localStorage.getItem('scribe_token');
     if (savedToken) {
       setToken(savedToken);
-      // Load drafts from API
       fetch('/api/drafts', {
         headers: { 'Authorization': `Bearer ${savedToken}` },
       })
         .then(res => res.ok ? res.json() : [])
         .then((serverDrafts) => {
           setDrafts(serverDrafts);
-          // Auto-load the most recent draft
           if (serverDrafts.length > 0 && !currentDraft) {
             const latest = serverDrafts[0];
             setCurrentDraft(latest);
@@ -46,12 +44,10 @@ export default function Home() {
           }
         })
         .catch(() => {
-          // Fallback to localStorage
           const savedDrafts = localStorage.getItem('scribe_drafts');
           if (savedDrafts) setDrafts(JSON.parse(savedDrafts));
         });
     } else {
-      // No token - use localStorage
       const savedDrafts = localStorage.getItem('scribe_drafts');
       if (savedDrafts) setDrafts(JSON.parse(savedDrafts));
     }
@@ -61,11 +57,7 @@ export default function Home() {
   // Auto-save draft (debounced)
   useEffect(() => {
     if (!content || !token) return;
-    
-    const timer = setTimeout(() => {
-      saveDraft();
-    }, 1500); // Save 1.5s after last change
-    
+    const timer = setTimeout(() => saveDraft(), 1500);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, title, token]);
@@ -85,22 +77,15 @@ export default function Home() {
         if (!res.ok) return;
         
         const serverDraft = await res.json();
-        const serverTime = serverDraft.updated_at;
-        
-        // If this is our first check, just record the time
         if (!lastKnownUpdate.current) {
-          lastKnownUpdate.current = serverTime;
+          lastKnownUpdate.current = serverDraft.updated_at;
           return;
         }
-        
-        // If server has newer version, notify and offer to reload
-        if (serverTime !== lastKnownUpdate.current) {
-          lastKnownUpdate.current = serverTime;
+        if (serverDraft.updated_at !== lastKnownUpdate.current) {
+          lastKnownUpdate.current = serverDraft.updated_at;
           showToast('📝 Document updated externally! Click refresh to load changes.', 'info');
         }
-      } catch {
-        // Ignore polling errors
-      }
+      } catch { /* ignore */ }
     };
     
     const interval = setInterval(poll, 5000);
@@ -109,37 +94,31 @@ export default function Home() {
 
   const saveDraft = useCallback(async () => {
     if (!content) return;
-    
     setIsSaving(true);
     
     try {
-      // If we have an API token, save to backend
       if (token) {
         const isUpdate = currentDraft?.id && !currentDraft.id.startsWith('draft-');
-        const url = isUpdate 
-          ? `/api/drafts/${currentDraft.id}` 
-          : '/api/drafts';
-        
-        const response = await fetch(url, {
-          method: isUpdate ? 'PUT' : 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({ title, content }),
-        });
+        const response = await fetch(
+          isUpdate ? `/api/drafts/${currentDraft.id}` : '/api/drafts',
+          {
+            method: isUpdate ? 'PUT' : 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ title, content }),
+          }
+        );
         
         if (response.ok) {
           const savedDraft = await response.json();
           setCurrentDraft(savedDraft);
-          
-          // Refresh drafts list
+          lastKnownUpdate.current = savedDraft.updated_at;
           const listResponse = await fetch('/api/drafts', {
             headers: { 'Authorization': `Bearer ${token}` },
           });
-          if (listResponse.ok) {
-            setDrafts(await listResponse.json());
-          }
+          if (listResponse.ok) setDrafts(await listResponse.json());
           return;
         }
       }
@@ -152,10 +131,8 @@ export default function Home() {
         created_at: currentDraft?.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      
       const updatedDrafts = drafts.filter(d => d.id !== draft.id);
       updatedDrafts.unshift(draft);
-      
       setDrafts(updatedDrafts);
       setCurrentDraft(draft);
       localStorage.setItem('scribe_drafts', JSON.stringify(updatedDrafts));
@@ -166,13 +143,11 @@ export default function Home() {
 
   const reloadCurrentDraft = async () => {
     if (!token || !currentDraft?.id || currentDraft.id.startsWith('draft-')) return;
-    
     try {
       const res = await fetch(`/api/drafts/${currentDraft.id}`, {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       if (!res.ok) return;
-      
       const serverDraft = await res.json();
       setCurrentDraft(serverDraft);
       setTitle(serverDraft.title);
@@ -188,14 +163,19 @@ export default function Home() {
     setCurrentDraft(draft);
     setTitle(draft.title);
     setContent(draft.content);
-    setShowDrafts(false);
+    lastKnownUpdate.current = draft.updated_at;
   };
 
-  const deleteDraft = (id: string) => {
+  const deleteDraft = async (id: string) => {
+    if (token && !id.startsWith('draft-')) {
+      await fetch(`/api/drafts/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+    }
     const updatedDrafts = drafts.filter(d => d.id !== id);
     setDrafts(updatedDrafts);
     localStorage.setItem('scribe_drafts', JSON.stringify(updatedDrafts));
-    
     if (currentDraft?.id === id) {
       setCurrentDraft(null);
       setTitle('Untitled');
@@ -206,17 +186,21 @@ export default function Home() {
   const newDraft = () => {
     setCurrentDraft(null);
     setTitle('Untitled');
-    setContent({
-      type: 'doc',
-      content: [{ type: 'paragraph' }],
-    });
-    setShowDrafts(false);
+    setContent({ type: 'doc', content: [{ type: 'paragraph' }] });
+    lastKnownUpdate.current = null;
+  };
+
+  const startEditingTitle = () => {
+    setIsEditingTitle(true);
+    setTimeout(() => titleInputRef.current?.select(), 0);
+  };
+
+  const finishEditingTitle = () => {
+    setIsEditingTitle(false);
   };
 
   const exportToHtml = () => {
-    // Simple conversion to HTML (TipTap has better built-in methods)
     let html = `<h1>${title}</h1>\n`;
-    
     if (content?.content) {
       content.content.forEach((node: any) => {
         if (node.type === 'paragraph') {
@@ -228,14 +212,13 @@ export default function Home() {
         }
       });
     }
-    
     navigator.clipboard.writeText(html);
-    alert('HTML copied to clipboard!');
+    showToast('HTML copied to clipboard!', 'success');
+    setShowExport(false);
   };
 
   const exportToMarkdown = () => {
     let markdown = `# ${title}\n\n`;
-    
     if (content?.content) {
       content.content.forEach((node: any) => {
         if (node.type === 'paragraph') {
@@ -247,59 +230,91 @@ export default function Home() {
         }
       });
     }
-    
     navigator.clipboard.writeText(markdown);
-    alert('Markdown copied to clipboard!');
+    showToast('Markdown copied to clipboard!', 'success');
+    setShowExport(false);
   };
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
+      <header className="bg-white border-b border-gray-200 px-6 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-gray-900">✍️ Scribe</h1>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="text-lg font-medium px-3 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Untitled"
-            />
-            {isSaving && (
-              <span className="text-sm text-gray-500">Saving...</span>
+            <h1 className="text-xl font-bold text-gray-900">✍️ Scribe</h1>
+            
+            {/* Editable Title */}
+            {isEditingTitle ? (
+              <div className="flex items-center gap-2">
+                <input
+                  ref={titleInputRef}
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onBlur={finishEditingTitle}
+                  onKeyDown={(e) => e.key === 'Enter' && finishEditingTitle()}
+                  className="text-lg font-medium px-2 py-1 border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Untitled"
+                />
+                <button onClick={finishEditingTitle} className="text-green-600 hover:text-green-700">
+                  <Check className="w-5 h-5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={startEditingTitle}
+                className="flex items-center gap-2 text-lg font-medium text-gray-800 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100 transition-colors"
+              >
+                {title || 'Untitled'}
+                <Pencil className="w-4 h-4 text-gray-400" />
+              </button>
             )}
+            
+            {isSaving && <span className="text-sm text-gray-400">Saving...</span>}
           </div>
           
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowDrafts(!showDrafts)}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2"
-            >
-              <FileText className="w-4 h-4" />
-              Drafts
-            </button>
-            
-            <button
               onClick={newDraft}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2"
+              className="px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
               New
             </button>
             
-            <button
-              onClick={() => setShowExport(!showExport)}
-              className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Export
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setShowExport(!showExport)}
+                className="px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Export
+              </button>
+              
+              {showExport && (
+                <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 min-w-[160px]">
+                  <button
+                    onClick={exportToHtml}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy as HTML
+                  </button>
+                  <button
+                    onClick={exportToMarkdown}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy as Markdown
+                  </button>
+                </div>
+              )}
+            </div>
             
             <button
               onClick={reloadCurrentDraft}
               disabled={!currentDraft?.id || currentDraft.id.startsWith('draft-')}
-              className="px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-30 flex items-center gap-1"
+              className="px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-30"
               title="Reload from server"
             >
               <RefreshCw className="w-4 h-4" />
@@ -317,86 +332,67 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Export Menu */}
-      {showExport && (
-        <div className="absolute right-6 top-20 bg-white border border-gray-200 rounded-lg shadow-lg py-2 z-10">
-          <button
-            onClick={exportToHtml}
-            className="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2"
-          >
-            <Copy className="w-4 h-4" />
-            Copy as HTML
-          </button>
-          <button
-            onClick={exportToMarkdown}
-            className="w-full px-4 py-2 text-left hover:bg-gray-100 flex items-center gap-2"
-          >
-            <Copy className="w-4 h-4" />
-            Copy as Markdown
-          </button>
-        </div>
-      )}
-
-      {/* Drafts Sidebar */}
-      {showDrafts && (
-        <div className="absolute left-6 top-20 bg-white border border-gray-200 rounded-lg shadow-lg w-80 max-h-96 overflow-y-auto z-10">
-          <div className="p-4 border-b border-gray-200">
-            <h3 className="font-semibold">Your Drafts</h3>
-          </div>
-          {drafts.length === 0 ? (
-            <div className="p-4 text-center text-gray-500 text-sm">
-              No drafts yet
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-200">
-              {drafts.map((draft) => (
-                <div
-                  key={draft.id}
-                  className={cn(
-                    'p-4 hover:bg-gray-50 cursor-pointer flex items-start justify-between gap-2',
-                    currentDraft?.id === draft.id && 'bg-blue-50'
-                  )}
-                  onClick={() => loadDraft(draft)}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm truncate">{draft.title}</p>
-                    <p className="text-xs text-gray-500">
-                      {new Date(draft.updated_at).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm('Delete this draft?')) {
-                        deleteDraft(draft.id);
-                      }
-                    }}
-                    className="text-gray-400 hover:text-red-600 transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Main Content - Split View */}
+      {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Editor (Left) */}
+        {/* Editor */}
         <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-4xl mx-auto">
-            <Editor
-              content={content}
-              onChange={setContent}
-            />
+          <div className="max-w-3xl mx-auto">
+            <Editor content={content} onChange={setContent} />
           </div>
         </div>
 
-        {/* Chat (Right) */}
-        <div className="w-96 flex-shrink-0">
-          <Chat editorContent={content} />
+        {/* Drafts Sidebar */}
+        <div className="w-72 bg-white border-l border-gray-200 flex flex-col">
+          <div className="p-4 border-b border-gray-200">
+            <h2 className="font-semibold text-gray-700 flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              Drafts
+            </h2>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto">
+            {drafts.length === 0 ? (
+              <div className="p-4 text-center text-gray-400 text-sm">
+                No drafts yet
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {drafts.map((draft) => (
+                  <div
+                    key={draft.id}
+                    className={cn(
+                      'p-3 hover:bg-gray-50 cursor-pointer flex items-start justify-between gap-2 transition-colors',
+                      currentDraft?.id === draft.id && 'bg-blue-50 border-l-2 border-blue-500'
+                    )}
+                    onClick={() => loadDraft(draft)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm text-gray-800 truncate">
+                        {draft.title || 'Untitled'}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {new Date(draft.updated_at).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm('Delete this draft?')) deleteDraft(draft.id);
+                      }}
+                      className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
       
