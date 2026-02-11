@@ -24,16 +24,26 @@ export default function Home() {
   const [token, setToken] = useState<string>('');
   const [showExport, setShowExport] = useState(false);
 
-  // Load drafts from localStorage (for demo purposes)
+  // Load token and drafts
   useEffect(() => {
-    const savedDrafts = localStorage.getItem('scribe_drafts');
-    if (savedDrafts) {
-      setDrafts(JSON.parse(savedDrafts));
-    }
-    
     const savedToken = localStorage.getItem('scribe_token');
     if (savedToken) {
       setToken(savedToken);
+      // Load drafts from API
+      fetch('/api/drafts', {
+        headers: { 'Authorization': `Bearer ${savedToken}` },
+      })
+        .then(res => res.ok ? res.json() : [])
+        .then(setDrafts)
+        .catch(() => {
+          // Fallback to localStorage
+          const savedDrafts = localStorage.getItem('scribe_drafts');
+          if (savedDrafts) setDrafts(JSON.parse(savedDrafts));
+        });
+    } else {
+      // No token - use localStorage
+      const savedDrafts = localStorage.getItem('scribe_drafts');
+      if (savedDrafts) setDrafts(JSON.parse(savedDrafts));
     }
   }, []);
 
@@ -54,6 +64,38 @@ export default function Home() {
     setIsSaving(true);
     
     try {
+      // If we have an API token, save to backend
+      if (token) {
+        const isUpdate = currentDraft?.id && !currentDraft.id.startsWith('draft-');
+        const url = isUpdate 
+          ? `/api/drafts/${currentDraft.id}` 
+          : '/api/drafts';
+        
+        const response = await fetch(url, {
+          method: isUpdate ? 'PUT' : 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ title, content }),
+        });
+        
+        if (response.ok) {
+          const savedDraft = await response.json();
+          setCurrentDraft(savedDraft);
+          
+          // Refresh drafts list
+          const listResponse = await fetch('/api/drafts', {
+            headers: { 'Authorization': `Bearer ${token}` },
+          });
+          if (listResponse.ok) {
+            setDrafts(await listResponse.json());
+          }
+          return;
+        }
+      }
+      
+      // Fallback to localStorage
       const draft: Draft = {
         id: currentDraft?.id || `draft-${Date.now()}`,
         title,
@@ -71,7 +113,7 @@ export default function Home() {
     } finally {
       setIsSaving(false);
     }
-  }, [content, title, currentDraft, drafts]);
+  }, [content, title, currentDraft, drafts, token]);
 
   const loadDraft = (draft: Draft) => {
     setCurrentDraft(draft);
