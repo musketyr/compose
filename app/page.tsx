@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Editor } from '@/components/editor';
 import { Chat } from '@/components/chat';
-import { Save, FileText, Trash2, Plus, Download, Copy } from 'lucide-react';
+import { ToastContainer, showToast } from '@/components/toast';
+import { Save, FileText, Trash2, Plus, Download, Copy, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 interface Draft {
@@ -69,6 +70,43 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, title, token]);
 
+  // Track last known update time for external change detection
+  const lastKnownUpdate = useRef<string | null>(null);
+  
+  // Poll for external changes every 5 seconds
+  useEffect(() => {
+    if (!token || !currentDraft?.id || currentDraft.id.startsWith('draft-')) return;
+    
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/drafts/${currentDraft.id}`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        
+        const serverDraft = await res.json();
+        const serverTime = serverDraft.updated_at;
+        
+        // If this is our first check, just record the time
+        if (!lastKnownUpdate.current) {
+          lastKnownUpdate.current = serverTime;
+          return;
+        }
+        
+        // If server has newer version, notify and offer to reload
+        if (serverTime !== lastKnownUpdate.current) {
+          lastKnownUpdate.current = serverTime;
+          showToast('📝 Document updated externally! Click refresh to load changes.', 'info');
+        }
+      } catch {
+        // Ignore polling errors
+      }
+    };
+    
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
+  }, [token, currentDraft?.id]);
+
   const saveDraft = useCallback(async () => {
     if (!content) return;
     
@@ -125,6 +163,26 @@ export default function Home() {
       setIsSaving(false);
     }
   }, [content, title, currentDraft, drafts, token]);
+
+  const reloadCurrentDraft = async () => {
+    if (!token || !currentDraft?.id || currentDraft.id.startsWith('draft-')) return;
+    
+    try {
+      const res = await fetch(`/api/drafts/${currentDraft.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      
+      const serverDraft = await res.json();
+      setCurrentDraft(serverDraft);
+      setTitle(serverDraft.title);
+      setContent(serverDraft.content);
+      lastKnownUpdate.current = serverDraft.updated_at;
+      showToast('✅ Document reloaded!', 'success');
+    } catch {
+      showToast('Failed to reload document', 'warning');
+    }
+  };
 
   const loadDraft = (draft: Draft) => {
     setCurrentDraft(draft);
@@ -239,6 +297,15 @@ export default function Home() {
             </button>
             
             <button
+              onClick={reloadCurrentDraft}
+              disabled={!currentDraft?.id || currentDraft.id.startsWith('draft-')}
+              className="px-3 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-30 flex items-center gap-1"
+              title="Reload from server"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            
+            <button
               onClick={saveDraft}
               disabled={isSaving}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
@@ -332,6 +399,8 @@ export default function Home() {
           <Chat editorContent={content} />
         </div>
       </div>
+      
+      <ToastContainer />
     </div>
   );
 }
