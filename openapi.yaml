@@ -1,0 +1,342 @@
+openapi: 3.0.3
+info:
+  title: Scribe API
+  description: REST API for the Scribe collaborative article writing application
+  version: 0.1.0
+  contact:
+    name: Scribe API Support
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+  - url: https://your-app.vercel.app
+    description: Production server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: API token obtained from /api/auth/token endpoint
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+      required:
+        - error
+
+    Draft:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique draft identifier
+        title:
+          type: string
+          description: Draft title
+        content:
+          type: object
+          description: TipTap JSON content
+        user_id:
+          type: string
+          description: Owner user ID
+        created_at:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated_at:
+          type: string
+          format: date-time
+          description: Last update timestamp
+      required:
+        - id
+        - title
+        - content
+        - user_id
+        - created_at
+        - updated_at
+
+    DraftInput:
+      type: object
+      properties:
+        title:
+          type: string
+          description: Draft title
+          default: Untitled
+        content:
+          type: object
+          description: TipTap JSON content
+          default: {}
+
+    TokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: API token (only shown once)
+        message:
+          type: string
+          description: Success message
+      required:
+        - token
+        - message
+
+    TokenRequest:
+      type: object
+      properties:
+        user_id:
+          type: string
+          description: User identifier
+          default: default_user
+        name:
+          type: string
+          description: Token name for identification
+          default: API Token
+
+paths:
+  /api/init:
+    get:
+      summary: Initialize database
+      description: Creates database tables and indexes if they don't exist
+      tags:
+        - System
+      responses:
+        '200':
+          description: Database initialized successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '500':
+          description: Database initialization failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/auth/token:
+    post:
+      summary: Create API token
+      description: Generates a new API token for authentication
+      tags:
+        - Authentication
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRequest'
+      responses:
+        '201':
+          description: Token created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '500':
+          description: Token creation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/drafts:
+    get:
+      summary: List drafts
+      description: Returns all drafts for the authenticated user
+      tags:
+        - Drafts
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of drafts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Draft'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to fetch drafts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      summary: Create draft
+      description: Creates a new draft
+      tags:
+        - Drafts
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftInput'
+      responses:
+        '201':
+          description: Draft created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Draft'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to create draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/drafts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Draft ID
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      summary: Get draft
+      description: Returns a specific draft by ID
+      tags:
+        - Drafts
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Draft details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Draft'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Draft not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to fetch draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Update draft
+      description: Updates an existing draft
+      tags:
+        - Drafts
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DraftInput'
+      responses:
+        '200':
+          description: Draft updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Draft'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Draft not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to update draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete draft
+      description: Deletes a draft permanently
+      tags:
+        - Drafts
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Draft deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Draft not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Failed to delete draft
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+tags:
+  - name: System
+    description: System management endpoints
+  - name: Authentication
+    description: API token management
+  - name: Drafts
+    description: Draft CRUD operations
