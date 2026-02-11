@@ -99,4 +99,9 @@ export async function initDatabase() {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens(token_hash)
   `;
+
+  // Add suggestions column to drafts (safe to run multiple times)
+  await sql`
+    ALTER TABLE drafts ADD COLUMN IF NOT EXISTS suggestions JSONB DEFAULT '[]'::jsonb
+  `;
 }

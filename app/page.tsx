@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Editor } from '@/components/editor';
 import { ToastContainer, showToast } from '@/components/toast';
-import { Save, FileText, Trash2, Plus, Download, Copy, RefreshCw, Pencil, Check } from 'lucide-react';
+import { Save, FileText, Trash2, Plus, Download, Copy, RefreshCw, Pencil, Check, X, MessageSquare, Lightbulb } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 interface Draft {
@@ -12,6 +12,15 @@ interface Draft {
   content: any;
   created_at: string;
   updated_at: string;
+}
+
+interface Suggestion {
+  id: string;
+  original: string;
+  suggested: string;
+  reason?: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  created_at: string;
 }
 
 export default function Home() {
@@ -23,7 +32,10 @@ export default function Home() {
   const [token, setToken] = useState<string>('');
   const [showExport, setShowExport] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<'drafts' | 'suggestions'>('drafts');
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const lastKnownUpdate = useRef<string | null>(null);
 
   // Load token and drafts
   useEffect(() => {
@@ -41,6 +53,7 @@ export default function Home() {
             setCurrentDraft(latest);
             setTitle(latest.title);
             setContent(latest.content);
+            loadSuggestions(latest.id, savedToken);
           }
         })
         .catch(() => {
@@ -54,6 +67,23 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadSuggestions = async (draftId: string, authToken: string) => {
+    if (!draftId || draftId.startsWith('draft-')) return;
+    try {
+      const res = await fetch(`/api/drafts/${draftId}/suggestions`, {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions(data);
+        // Auto-switch to suggestions tab if there are pending suggestions
+        if (data.some((s: Suggestion) => s.status === 'pending')) {
+          setSidebarTab('suggestions');
+        }
+      }
+    } catch { /* ignore */ }
+  };
+
   // Auto-save draft (debounced)
   useEffect(() => {
     if (!content || !token) return;
@@ -62,9 +92,6 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [content, title, token]);
 
-  // Track last known update time for external change detection
-  const lastKnownUpdate = useRef<string | null>(null);
-  
   // Poll for external changes every 5 seconds
   useEffect(() => {
     if (!token || !currentDraft?.id || currentDraft.id.startsWith('draft-')) return;
@@ -83,7 +110,9 @@ export default function Home() {
         }
         if (serverDraft.updated_at !== lastKnownUpdate.current) {
           lastKnownUpdate.current = serverDraft.updated_at;
-          showToast('📝 Document updated externally! Click refresh to load changes.', 'info');
+          showToast('📝 Document updated! Click refresh to load changes.', 'info');
+          // Reload suggestions too
+          loadSuggestions(currentDraft.id, token);
         }
       } catch { /* ignore */ }
     };
@@ -153,17 +182,22 @@ export default function Home() {
       setTitle(serverDraft.title);
       setContent(serverDraft.content);
       lastKnownUpdate.current = serverDraft.updated_at;
+      await loadSuggestions(serverDraft.id, token);
       showToast('✅ Document reloaded!', 'success');
     } catch {
       showToast('Failed to reload document', 'warning');
     }
   };
 
-  const loadDraft = (draft: Draft) => {
+  const loadDraft = async (draft: Draft) => {
     setCurrentDraft(draft);
     setTitle(draft.title);
     setContent(draft.content);
     lastKnownUpdate.current = draft.updated_at;
+    setSuggestions([]);
+    if (token && !draft.id.startsWith('draft-')) {
+      await loadSuggestions(draft.id, token);
+    }
   };
 
   const deleteDraft = async (id: string) => {
@@ -180,6 +214,7 @@ export default function Home() {
       setCurrentDraft(null);
       setTitle('Untitled');
       setContent(null);
+      setSuggestions([]);
     }
   };
 
@@ -188,6 +223,57 @@ export default function Home() {
     setTitle('Untitled');
     setContent({ type: 'doc', content: [{ type: 'paragraph' }] });
     lastKnownUpdate.current = null;
+    setSuggestions([]);
+  };
+
+  const acceptSuggestion = async (suggestion: Suggestion) => {
+    if (!currentDraft?.id || !content) return;
+    
+    // Apply the text replacement in the content
+    const contentStr = JSON.stringify(content);
+    const newContentStr = contentStr.replace(
+      new RegExp(escapeRegExp(suggestion.original), 'g'),
+      suggestion.suggested
+    );
+    const newContent = JSON.parse(newContentStr);
+    setContent(newContent);
+    
+    // Update suggestion status
+    if (token && !currentDraft.id.startsWith('draft-')) {
+      await fetch(`/api/drafts/${currentDraft.id}/suggestions/${suggestion.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: 'accepted' }),
+      });
+    }
+    
+    setSuggestions(prev => prev.map(s => 
+      s.id === suggestion.id ? { ...s, status: 'accepted' } : s
+    ));
+    showToast('✅ Suggestion applied!', 'success');
+  };
+
+  const rejectSuggestion = async (suggestion: Suggestion) => {
+    if (!currentDraft?.id) return;
+    
+    if (token && !currentDraft.id.startsWith('draft-')) {
+      await fetch(`/api/drafts/${currentDraft.id}/suggestions/${suggestion.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: 'rejected' }),
+      });
+    }
+    
+    setSuggestions(prev => prev.map(s => 
+      s.id === suggestion.id ? { ...s, status: 'rejected' } : s
+    ));
+    showToast('Suggestion dismissed', 'info');
   };
 
   const startEditingTitle = () => {
@@ -235,6 +321,8 @@ export default function Home() {
     setShowExport(false);
   };
 
+  const pendingSuggestions = suggestions.filter(s => s.status === 'pending');
+
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Header */}
@@ -243,7 +331,6 @@ export default function Home() {
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-bold text-gray-900">✍️ Scribe</h1>
             
-            {/* Editable Title */}
             {isEditingTitle ? (
               <div className="flex items-center gap-2">
                 <input
@@ -341,56 +428,145 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Drafts Sidebar */}
-        <div className="w-72 bg-white border-l border-gray-200 flex flex-col">
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="font-semibold text-gray-700 flex items-center gap-2">
+        {/* Sidebar */}
+        <div className="w-80 bg-white border-l border-gray-200 flex flex-col">
+          {/* Tabs */}
+          <div className="flex border-b border-gray-200">
+            <button
+              onClick={() => setSidebarTab('drafts')}
+              className={cn(
+                'flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors',
+                sidebarTab === 'drafts'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
               <FileText className="w-4 h-4" />
               Drafts
-            </h2>
+            </button>
+            <button
+              onClick={() => setSidebarTab('suggestions')}
+              className={cn(
+                'flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors relative',
+                sidebarTab === 'suggestions'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
+              <Lightbulb className="w-4 h-4" />
+              Suggestions
+              {pendingSuggestions.length > 0 && (
+                <span className="absolute top-2 right-4 bg-orange-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {pendingSuggestions.length}
+                </span>
+              )}
+            </button>
           </div>
           
+          {/* Content */}
           <div className="flex-1 overflow-y-auto">
-            {drafts.length === 0 ? (
-              <div className="p-4 text-center text-gray-400 text-sm">
-                No drafts yet
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {drafts.map((draft) => (
-                  <div
-                    key={draft.id}
-                    className={cn(
-                      'p-3 hover:bg-gray-50 cursor-pointer flex items-start justify-between gap-2 transition-colors',
-                      currentDraft?.id === draft.id && 'bg-blue-50 border-l-2 border-blue-500'
-                    )}
-                    onClick={() => loadDraft(draft)}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm text-gray-800 truncate">
-                        {draft.title || 'Untitled'}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {new Date(draft.updated_at).toLocaleDateString(undefined, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm('Delete this draft?')) deleteDraft(draft.id);
-                      }}
-                      className="text-gray-300 hover:text-red-500 transition-colors p-1"
+            {sidebarTab === 'drafts' ? (
+              // Drafts list
+              drafts.length === 0 ? (
+                <div className="p-4 text-center text-gray-400 text-sm">
+                  No drafts yet
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {drafts.map((draft) => (
+                    <div
+                      key={draft.id}
+                      className={cn(
+                        'p-3 hover:bg-gray-50 cursor-pointer flex items-start justify-between gap-2 transition-colors',
+                        currentDraft?.id === draft.id && 'bg-blue-50 border-l-2 border-blue-500'
+                      )}
+                      onClick={() => loadDraft(draft)}
                     >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-gray-800 truncate">
+                          {draft.title || 'Untitled'}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {new Date(draft.updated_at).toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm('Delete this draft?')) deleteDraft(draft.id);
+                        }}
+                        className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : (
+              // Suggestions list
+              suggestions.length === 0 ? (
+                <div className="p-6 text-center text-gray-400">
+                  <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No suggestions yet</p>
+                  <p className="text-xs mt-1">Jean can send edit suggestions here</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {suggestions.map((suggestion) => (
+                    <div
+                      key={suggestion.id}
+                      className={cn(
+                        'p-4',
+                        suggestion.status === 'accepted' && 'bg-green-50',
+                        suggestion.status === 'rejected' && 'bg-gray-50 opacity-60'
+                      )}
+                    >
+                      <div className="space-y-2">
+                        <div className="text-xs text-red-600 line-through bg-red-50 px-2 py-1 rounded">
+                          {suggestion.original}
+                        </div>
+                        <div className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded">
+                          {suggestion.suggested}
+                        </div>
+                        {suggestion.reason && (
+                          <p className="text-xs text-gray-500 italic">
+                            💡 {suggestion.reason}
+                          </p>
+                        )}
+                      </div>
+                      
+                      {suggestion.status === 'pending' ? (
+                        <div className="flex gap-2 mt-3">
+                          <button
+                            onClick={() => acceptSuggestion(suggestion)}
+                            className="flex-1 px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 flex items-center justify-center gap-1"
+                          >
+                            <Check className="w-3 h-3" />
+                            Accept
+                          </button>
+                          <button
+                            onClick={() => rejectSuggestion(suggestion)}
+                            className="flex-1 px-3 py-1.5 bg-gray-200 text-gray-700 text-xs rounded hover:bg-gray-300 flex items-center justify-center gap-1"
+                          >
+                            <X className="w-3 h-3" />
+                            Reject
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-400 mt-2">
+                          {suggestion.status === 'accepted' ? '✅ Applied' : '❌ Dismissed'}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
             )}
           </div>
         </div>
@@ -399,4 +575,9 @@ export default function Home() {
       <ToastContainer />
     </div>
   );
+}
+
+// Helper to escape regex special characters
+function escapeRegExp(string: string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
