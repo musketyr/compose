@@ -14,8 +14,8 @@ interface ChatProps {
   onInsertText?: (text: string) => void;
 }
 
-const OPENCLAW_URL = process.env.NEXT_PUBLIC_OPENCLAW_URL || 'https://jean-bot.tailf99986.ts.net';
-const OPENCLAW_TOKEN = process.env.NEXT_PUBLIC_OPENCLAW_TOKEN || '';
+// Use local proxy to avoid CORS issues
+const CHAT_API = '/api/chat';
 
 export function Chat({ editorContent }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -29,8 +29,9 @@ export function Chat({ editorContent }: ChatProps) {
   useEffect(() => {
     const checkConnection = async () => {
       try {
-        const response = await fetch(OPENCLAW_URL, { method: 'HEAD' });
-        setIsConnected(response.ok);
+        const response = await fetch(CHAT_API);
+        const data = await response.json();
+        setIsConnected(data.status === 'connected');
       } catch {
         setIsConnected(false);
       }
@@ -72,11 +73,10 @@ export function Chat({ editorContent }: ChatProps) {
     try {
       abortControllerRef.current = new AbortController();
       
-      const response = await fetch(`${OPENCLAW_URL}/v1/chat/completions`, {
+      const response = await fetch(CHAT_API, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(OPENCLAW_TOKEN && { 'Authorization': `Bearer ${OPENCLAW_TOKEN}` }),
         },
         body: JSON.stringify({
           model: 'default',
