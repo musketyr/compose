@@ -1,9 +1,5 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
-  "framework": "nextjs",
-  "env": {
-    "POSTGRES_URL": "@postgres_url",
-    "NEXT_PUBLIC_OPENCLAW_WS": "@openclaw_ws"
-  }
+  "framework": "nextjs"
 }
