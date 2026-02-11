@@ -8,7 +8,7 @@ import { createHash, randomBytes } from 'crypto';
 export async function generateApiToken(userId: string, name: string): Promise<string> {
   const rawToken = `scribe_${randomBytes(24).toString('hex')}`;
   const tokenHash = hashToken(rawToken);
-  const tokenPrefix = rawToken.slice(0, 15);
+  const tokenPrefix = rawToken.slice(0, 12);
 
   await sql`
     INSERT INTO api_tokens (user_id, name, token_hash, token_prefix)
