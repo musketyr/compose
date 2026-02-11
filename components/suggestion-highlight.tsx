@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { Check, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 interface Suggestion {
   id: string;
@@ -19,165 +20,155 @@ interface SuggestionHighlightProps {
   onReject: (suggestion: Suggestion) => void;
 }
 
-interface HighlightPosition {
-  suggestion: Suggestion;
-  top: number;
-  left: number;
-  width: number;
-}
-
 export function SuggestionHighlight({ 
   editorElement, 
   suggestions, 
   onAccept, 
   onReject 
 }: SuggestionHighlightProps) {
-  const [highlights, setHighlights] = useState<HighlightPosition[]>([]);
   const [activeSuggestion, setActiveSuggestion] = useState<Suggestion | null>(null);
   const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
-  const overlayRef = useRef<HTMLDivElement>(null);
 
-  // Find and position highlights
+  // Apply highlights directly to the editor content using CSS
   useEffect(() => {
     if (!editorElement) return;
 
     const pendingSuggestions = suggestions.filter(s => s.status === 'pending');
-    const newHighlights: HighlightPosition[] = [];
+    
+    // Remove old highlights
+    editorElement.querySelectorAll('.suggestion-highlight').forEach(el => {
+      const text = el.textContent || '';
+      el.replaceWith(document.createTextNode(text));
+    });
 
-    const treeWalker = document.createTreeWalker(
+    // Apply new highlights
+    const walker = document.createTreeWalker(
       editorElement,
       NodeFilter.SHOW_TEXT,
       null
     );
 
-    let node: Text | null;
-    while ((node = treeWalker.nextNode() as Text | null)) {
-      const text = node.textContent || '';
+    const nodesToReplace: { node: Text; suggestion: Suggestion; start: number; end: number }[] = [];
+    
+    let textNode: Text | null;
+    while ((textNode = walker.nextNode() as Text | null)) {
+      const text = textNode.textContent || '';
       
       for (const suggestion of pendingSuggestions) {
         const index = text.indexOf(suggestion.original);
         if (index !== -1) {
-          const range = document.createRange();
-          range.setStart(node, index);
-          range.setEnd(node, index + suggestion.original.length);
-          
-          const rect = range.getBoundingClientRect();
-          const editorRect = editorElement.getBoundingClientRect();
-          
-          newHighlights.push({
+          nodesToReplace.push({
+            node: textNode,
             suggestion,
-            top: rect.top - editorRect.top + editorElement.scrollTop,
-            left: rect.left - editorRect.left,
-            width: rect.width,
+            start: index,
+            end: index + suggestion.original.length,
           });
+          break; // Only one highlight per text node for simplicity
         }
       }
     }
 
-    setHighlights(newHighlights);
+    // Apply replacements (in reverse order to maintain positions)
+    for (const { node, suggestion, start, end } of nodesToReplace.reverse()) {
+      const text = node.textContent || '';
+      const before = text.slice(0, start);
+      const match = text.slice(start, end);
+      const after = text.slice(end);
+
+      const span = document.createElement('span');
+      span.className = 'suggestion-highlight bg-yellow-200 cursor-pointer hover:bg-yellow-300 px-0.5 rounded border-b-2 border-yellow-400';
+      span.textContent = match;
+      span.dataset.suggestionId = suggestion.id;
+      span.title = `→ ${suggestion.suggested}`;
+      
+      span.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setActiveSuggestion(suggestion);
+        const rect = span.getBoundingClientRect();
+        setPopoverPos({
+          top: rect.bottom + window.scrollY + 8,
+          left: rect.left + window.scrollX,
+        });
+      });
+
+      const fragment = document.createDocumentFragment();
+      if (before) fragment.appendChild(document.createTextNode(before));
+      fragment.appendChild(span);
+      if (after) fragment.appendChild(document.createTextNode(after));
+      
+      node.parentNode?.replaceChild(fragment, node);
+    }
+
+    // Cleanup on unmount
+    return () => {
+      editorElement.querySelectorAll('.suggestion-highlight').forEach(el => {
+        const text = el.textContent || '';
+        el.replaceWith(document.createTextNode(text));
+      });
+    };
   }, [editorElement, suggestions]);
-
-  const handleHighlightClick = (highlight: HighlightPosition, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setActiveSuggestion(highlight.suggestion);
-    setPopoverPos({
-      top: highlight.top - 80,
-      left: highlight.left,
-    });
-  };
-
-  const closePopover = () => {
-    setActiveSuggestion(null);
-  };
 
   // Close popover when clicking outside
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (overlayRef.current && !overlayRef.current.contains(e.target as Node)) {
-        closePopover();
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    const handleClick = () => setActiveSuggestion(null);
+    document.addEventListener('click', handleClick);
+    return () => document.removeEventListener('click', handleClick);
   }, []);
 
-  if (!editorElement) return null;
+  if (!activeSuggestion) return null;
 
-  return (
-    <div 
-      ref={overlayRef}
-      className="absolute inset-0 pointer-events-none"
-      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+  return createPortal(
+    <div
+      className="fixed bg-white border border-gray-200 rounded-lg shadow-xl p-4 z-50 min-w-[300px] max-w-[400px]"
+      style={{
+        top: popoverPos.top,
+        left: Math.min(popoverPos.left, window.innerWidth - 420),
+      }}
+      onClick={(e) => e.stopPropagation()}
     >
-      {/* Highlight overlays */}
-      {highlights.map((highlight, idx) => (
-        <div
-          key={highlight.suggestion.id + idx}
-          className="absolute bg-yellow-200/50 border-b-2 border-yellow-400 cursor-pointer pointer-events-auto hover:bg-yellow-300/60 transition-colors"
-          style={{
-            top: highlight.top,
-            left: highlight.left,
-            width: highlight.width,
-            height: 24,
-          }}
-          onClick={(e) => handleHighlightClick(highlight, e)}
-          title={`Suggestion: ${highlight.suggestion.suggested}`}
-        />
-      ))}
-
-      {/* Popover */}
-      {activeSuggestion && (
-        <div
-          className="absolute bg-white border border-gray-200 rounded-lg shadow-xl p-3 z-50 pointer-events-auto min-w-[280px]"
-          style={{
-            top: Math.max(popoverPos.top, 10),
-            left: popoverPos.left,
-          }}
-        >
-          <div className="space-y-2 mb-3">
-            <div className="flex items-start gap-2">
-              <span className="text-xs text-gray-400 w-16">Original:</span>
-              <span className="text-sm text-red-600 line-through flex-1">
-                {activeSuggestion.original}
-              </span>
-            </div>
-            <div className="flex items-start gap-2">
-              <span className="text-xs text-gray-400 w-16">Replace:</span>
-              <span className="text-sm text-green-600 font-medium flex-1">
-                {activeSuggestion.suggested}
-              </span>
-            </div>
-            {activeSuggestion.reason && (
-              <p className="text-xs text-gray-500 italic mt-1">
-                💡 {activeSuggestion.reason}
-              </p>
-            )}
-          </div>
-          
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                onAccept(activeSuggestion);
-                closePopover();
-              }}
-              className="flex-1 px-3 py-1.5 bg-green-600 text-white text-xs rounded hover:bg-green-700 flex items-center justify-center gap-1"
-            >
-              <Check className="w-3 h-3" />
-              Accept
-            </button>
-            <button
-              onClick={() => {
-                onReject(activeSuggestion);
-                closePopover();
-              }}
-              className="flex-1 px-3 py-1.5 bg-gray-200 text-gray-700 text-xs rounded hover:bg-gray-300 flex items-center justify-center gap-1"
-            >
-              <X className="w-3 h-3" />
-              Reject
-            </button>
-          </div>
+      <div className="space-y-3 mb-4">
+        <div>
+          <span className="text-xs text-gray-400 block mb-1">Original:</span>
+          <span className="text-sm text-red-600 line-through bg-red-50 px-2 py-1 rounded block">
+            {activeSuggestion.original}
+          </span>
         </div>
-      )}
-    </div>
+        <div>
+          <span className="text-xs text-gray-400 block mb-1">Suggested:</span>
+          <span className="text-sm text-green-700 font-medium bg-green-50 px-2 py-1 rounded block">
+            {activeSuggestion.suggested}
+          </span>
+        </div>
+        {activeSuggestion.reason && (
+          <p className="text-xs text-gray-500 italic bg-gray-50 px-2 py-1 rounded">
+            💡 {activeSuggestion.reason}
+          </p>
+        )}
+      </div>
+      
+      <div className="flex gap-2">
+        <button
+          onClick={() => {
+            onAccept(activeSuggestion);
+            setActiveSuggestion(null);
+          }}
+          className="flex-1 px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"
+        >
+          <Check className="w-4 h-4" />
+          Accept
+        </button>
+        <button
+          onClick={() => {
+            onReject(activeSuggestion);
+            setActiveSuggestion(null);
+          }}
+          className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 flex items-center justify-center gap-2"
+        >
+          <X className="w-4 h-4" />
+          Reject
+        </button>
+      </div>
+    </div>,
+    document.body
   );
 }

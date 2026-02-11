@@ -43,12 +43,6 @@ export default function Home() {
       if (res.ok) {
         const data = await res.json();
         setDrafts(data);
-        
-        // If there's a recent draft, redirect to it
-        if (data.length > 0) {
-          router.push(`/drafts/${data[0].id}`);
-          return;
-        }
       } else {
         showToast('Invalid token', 'warning');
         setShowTokenInput(true);
