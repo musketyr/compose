@@ -63,7 +63,9 @@ export function Chat({ editorContent }: ChatProps) {
           ? editorContent 
           : JSON.stringify(editorContent);
         if (contentStr.length > 100) {
-          contextNote = `\n\n[Editor context: ${contentStr.slice(0, 500)}...]`;
+          // Include up to 20k chars for full article context
+          const truncated = contentStr.length > 20000;
+          contextNote = `\n\n[Editor content (${contentStr.length} chars):\n${contentStr.slice(0, 20000)}${truncated ? '\n... (truncated)]' : ']'}`;
         }
       } catch {
         // Ignore serialization errors
