@@ -9,6 +9,7 @@ interface Suggestion {
   suggested: string;
   reason?: string;
   status: 'pending' | 'accepted' | 'rejected';
+  created_at: string;
 }
 
 interface SuggestionHighlightProps {
