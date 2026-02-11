@@ -1,5 +1,6 @@
 'use client';
 
+import React, { useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
@@ -74,6 +75,19 @@ export function Editor({ content, onChange, editable = true }: EditorProps) {
       },
     },
   });
+
+  // Sync content when it changes externally (e.g., loading a draft)
+  useEffect(() => {
+    if (editor && content && !editor.isDestroyed) {
+      const currentContent = JSON.stringify(editor.getJSON());
+      const newContent = JSON.stringify(content);
+      
+      // Only update if content actually changed and it's not from our own onChange
+      if (currentContent !== newContent) {
+        editor.commands.setContent(content);
+      }
+    }
+  }, [editor, content]);
 
   const addImage = () => {
     const url = window.prompt('Image URL:');
