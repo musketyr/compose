@@ -34,7 +34,16 @@ export default function Home() {
         headers: { 'Authorization': `Bearer ${savedToken}` },
       })
         .then(res => res.ok ? res.json() : [])
-        .then(setDrafts)
+        .then((serverDrafts) => {
+          setDrafts(serverDrafts);
+          // Auto-load the most recent draft
+          if (serverDrafts.length > 0 && !currentDraft) {
+            const latest = serverDrafts[0];
+            setCurrentDraft(latest);
+            setTitle(latest.title);
+            setContent(latest.content);
+          }
+        })
         .catch(() => {
           // Fallback to localStorage
           const savedDrafts = localStorage.getItem('scribe_drafts');
@@ -45,18 +54,20 @@ export default function Home() {
       const savedDrafts = localStorage.getItem('scribe_drafts');
       if (savedDrafts) setDrafts(JSON.parse(savedDrafts));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-save draft
+  // Auto-save draft (debounced)
   useEffect(() => {
-    if (!content) return;
+    if (!content || !token) return;
     
     const timer = setTimeout(() => {
       saveDraft();
-    }, 2000);
+    }, 1500); // Save 1.5s after last change
     
     return () => clearTimeout(timer);
-  }, [content, title]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, title, token]);
 
   const saveDraft = useCallback(async () => {
     if (!content) return;
