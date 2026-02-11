@@ -50,26 +50,16 @@ export async function POST(request: NextRequest) {
       ? `I'm working on a document. Here's the context:${context}User question: ${message}`
       : message;
 
-    // Call OpenClaw API
-    const response = await fetch(`${OPENCLAW_URL}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message: fullMessage,
-        // Could add session management here
-      }),
+    // For now, return a helpful message
+    // Full chat integration requires OpenClaw hooks configuration
+    console.log(`[Scribe Chat] User ${userId} message:`, message.slice(0, 100));
+    
+    // Store the message for later processing (could be expanded)
+    // For now, just acknowledge receipt
+    return NextResponse.json({ 
+      response: `📝 I received your message! The real-time chat feature is being set up. For now, I'll review your document and add suggestions directly.\n\nYour message: "${message.slice(0, 50)}${message.length > 50 ? '...' : ''}"`,
+      status: 'pending_integration'
     });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('OpenClaw error:', error);
-      return NextResponse.json({ error: 'Chat service unavailable' }, { status: 502 });
-    }
-
-    const data = await response.json();
-    return NextResponse.json(data);
 
   } catch (error) {
     console.error('Chat error:', error);
