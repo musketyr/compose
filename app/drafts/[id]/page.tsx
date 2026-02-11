@@ -292,65 +292,38 @@ export default function DraftPage() {
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <header className="bg-white border-b border-gray-200 px-3 sm:px-6 py-2 sm:py-3">
+        {/* Top row: back, brand, actions */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
               onClick={() => router.push('/')}
-              className="text-gray-500 hover:text-gray-700 p-1"
+              className="text-gray-500 hover:text-gray-700 p-1 shrink-0"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
             
-            <h1 className="text-xl font-bold text-gray-900">✍️ Scribe</h1>
-            
-            {isEditingTitle ? (
-              <div className="flex items-center gap-2">
-                <input
-                  ref={titleInputRef}
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  onBlur={() => setIsEditingTitle(false)}
-                  onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
-                  className="text-lg font-medium px-2 py-1 border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  autoFocus
-                />
-                <button onClick={() => setIsEditingTitle(false)} className="text-green-600">
-                  <Check className="w-5 h-5" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => {
-                  setIsEditingTitle(true);
-                  setTimeout(() => titleInputRef.current?.select(), 0);
-                }}
-                className="flex items-center gap-2 text-lg font-medium text-gray-800 hover:text-gray-600 px-2 py-1 rounded hover:bg-gray-100"
-              >
-                {title || 'Untitled'}
-                <Pencil className="w-4 h-4 text-gray-400" />
-              </button>
-            )}
-            
-            {isSaving && <span className="text-sm text-gray-400">Saving...</span>}
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 shrink-0">✍️ Scribe</h1>
             
             {pendingCount > 0 && (
-              <span className="flex items-center gap-1 text-sm text-orange-600 bg-orange-50 px-2 py-1 rounded">
-                <Lightbulb className="w-4 h-4" />
-                {pendingCount} suggestion{pendingCount > 1 ? 's' : ''}
+              <span className="flex items-center gap-1 text-xs sm:text-sm text-orange-600 bg-orange-50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded shrink-0">
+                <Lightbulb className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">{pendingCount} suggestion{pendingCount > 1 ? 's' : ''}</span>
+                <span className="sm:hidden">{pendingCount}</span>
               </span>
             )}
+            
+            {isSaving && <span className="text-xs text-gray-400 shrink-0">Saving...</span>}
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             <div className="relative">
               <button
                 onClick={() => setShowExport(!showExport)}
-                className="px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
+                className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1 sm:gap-2"
               >
                 <Download className="w-4 h-4" />
-                Export
+                <span className="hidden sm:inline text-sm">Export</span>
               </button>
               
               {showExport && (
@@ -365,19 +338,51 @@ export default function DraftPage() {
               )}
             </div>
             
-            <button onClick={reloadDraft} className="px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">
+            <button onClick={reloadDraft} className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg">
               <RefreshCw className="w-4 h-4" />
             </button>
             
             <button
               onClick={saveDraft}
               disabled={isSaving}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              className="p-2 sm:px-4 sm:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1 sm:gap-2"
             >
               <Save className="w-4 h-4" />
-              Save
+              <span className="hidden sm:inline">Save</span>
             </button>
           </div>
+        </div>
+        
+        {/* Title row - separate line for breathing room */}
+        <div className="mt-1.5 sm:mt-2 pl-8 sm:pl-10">
+          {isEditingTitle ? (
+            <div className="flex items-center gap-2">
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onBlur={() => setIsEditingTitle(false)}
+                onKeyDown={(e) => e.key === 'Enter' && setIsEditingTitle(false)}
+                className="text-base sm:text-lg font-medium px-2 py-1 border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 w-full"
+                autoFocus
+              />
+              <button onClick={() => setIsEditingTitle(false)} className="text-green-600 shrink-0">
+                <Check className="w-5 h-5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => {
+                setIsEditingTitle(true);
+                setTimeout(() => titleInputRef.current?.select(), 0);
+              }}
+              className="flex items-center gap-2 text-base sm:text-lg font-medium text-gray-800 hover:text-gray-600 px-2 py-0.5 rounded hover:bg-gray-100 max-w-full truncate"
+            >
+              <span className="truncate">{title || 'Untitled'}</span>
+              <Pencil className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400 shrink-0" />
+            </button>
+          )}
         </div>
       </header>
 

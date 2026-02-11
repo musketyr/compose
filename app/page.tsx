@@ -113,9 +113,9 @@ export default function Home() {
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
+      <header className="bg-white border-b border-gray-200 px-3 sm:px-6 py-3 sm:py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">✍️ Scribe</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">✍️ Scribe</h1>
           
           <div className="flex items-center gap-2">
             <button
@@ -132,7 +132,7 @@ export default function Home() {
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
-              New Draft
+              <span className="hidden sm:inline">New Draft</span>
             </button>
           </div>
         </div>
