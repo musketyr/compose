@@ -1,8 +1,4 @@
-import { sql as vercelSql } from '@vercel/postgres';
 import { Pool, QueryResult, QueryResultRow } from 'pg';
-
-// Use standard pg for local/CI, @vercel/postgres for production
-const isLocalOrCI = process.env.NODE_ENV === 'development' || process.env.CI === 'true';
 
 let pgPool: Pool | null = null;
 
@@ -15,14 +11,13 @@ function getPool(): Pool {
   return pgPool;
 }
 
-// Tagged template literal that works like @vercel/postgres's sql
-async function localSql<T extends QueryResultRow = QueryResultRow>(
+// Tagged template literal for parameterized queries
+export async function sql<T extends QueryResultRow = QueryResultRow>(
   strings: TemplateStringsArray,
   ...values: unknown[]
 ): Promise<QueryResult<T>> {
   const pool = getPool();
   
-  // Build parameterized query
   let text = '';
   for (let i = 0; i < strings.length; i++) {
     text += strings[i];
@@ -33,17 +28,6 @@ async function localSql<T extends QueryResultRow = QueryResultRow>(
   
   return pool.query<T>(text, values);
 }
-
-// Common type for both sql implementations
-type SqlFunction = <T extends QueryResultRow = QueryResultRow>(
-  strings: TemplateStringsArray,
-  ...values: unknown[]
-) => Promise<QueryResult<T>>;
-
-// Export the appropriate sql function with unified type
-export const sql: SqlFunction = isLocalOrCI 
-  ? localSql 
-  : (vercelSql as unknown as SqlFunction);
 
 export const isDatabaseConfigured = () => {
   return !!(process.env.POSTGRES_URL || process.env.DATABASE_URL);
