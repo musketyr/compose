@@ -46,10 +46,38 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Build the prompt for OpenClaw
-    const fullMessage = context 
-      ? `I'm working on a document. Here's the context:${context}User question: ${message}`
-      : message;
+    // Build conversation history
+    const conversationMessages: Array<{ role: string; content: string }> = [];
+    
+    // Add system message with document context
+    const systemMessage = context 
+      ? `You are Jean, a helpful writing assistant. The user is working on a document and may ask questions or request edits. Be concise and helpful.\n\nDocument context:${context}`
+      : `You are Jean, a helpful writing assistant. Be concise and helpful.`;
+    
+    conversationMessages.push({ role: 'system', content: systemMessage });
+    
+    // Fetch previous messages from this chat session (last 20 messages)
+    if (draftId) {
+      try {
+        const history = await sql`
+          SELECT role, content FROM chat_messages
+          WHERE draft_id = ${draftId}
+          ORDER BY created_at ASC
+          LIMIT 20
+        `;
+        for (const msg of history.rows) {
+          conversationMessages.push({ 
+            role: msg.role as string, 
+            content: msg.content as string 
+          });
+        }
+      } catch {
+        // Table might not exist yet, continue without history
+      }
+    }
+    
+    // Add current user message
+    conversationMessages.push({ role: 'user', content: message });
 
     // Call OpenClaw chat completions endpoint
     const response = await fetch(`${OPENCLAW_URL}/v1/chat/completions`, {
@@ -60,18 +88,7 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         model: 'anthropic/claude-sonnet-4-5-20250929',
-        messages: [
-          {
-            role: 'system',
-            content: context 
-              ? `You are Jean, a helpful writing assistant. The user is working on a document and may ask questions or request edits. Be concise and helpful.`
-              : `You are Jean, a helpful writing assistant. Be concise and helpful.`
-          },
-          {
-            role: 'user',
-            content: fullMessage
-          }
-        ],
+        messages: conversationMessages,
       }),
     });
 
