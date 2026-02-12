@@ -22,8 +22,35 @@ export function Chat({ token, draftId, isOpen, onClose }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const historyLoadedRef = useRef(false);
+
+  // Load chat history when opening
+  useEffect(() => {
+    if (isOpen && draftId && !historyLoadedRef.current) {
+      historyLoadedRef.current = true;
+      setIsLoadingHistory(true);
+      
+      fetch(`/api/drafts/${draftId}/chat-history`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then(data => {
+          if (data.messages?.length) {
+            setMessages(data.messages.map((m: { role: string; content: string; timestamp: string }) => ({
+              id: crypto.randomUUID(),
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              timestamp: new Date(m.timestamp),
+            })));
+          }
+        })
+        .catch(() => {})
+        .finally(() => setIsLoadingHistory(false));
+    }
+  }, [isOpen, draftId, token]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -120,7 +147,14 @@ export function Chat({ token, draftId, isOpen, onClose }: ChatProps) {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && (
+        {isLoadingHistory && (
+          <div className="text-center py-8">
+            <Loader2 className="w-8 h-8 mx-auto animate-spin text-gray-400" />
+            <p className="text-sm text-gray-500 mt-2">Loading history...</p>
+          </div>
+        )}
+        
+        {!isLoadingHistory && messages.length === 0 && (
           <div className="text-center text-gray-500 text-sm py-8">
             <MessageCircle className="w-12 h-12 mx-auto mb-3 text-gray-300" />
             <p>Ask me anything about your document!</p>
@@ -168,9 +202,20 @@ export function Chat({ token, draftId, isOpen, onClose }: ChatProps) {
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
-            className="shrink-0 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className={cn(
+              "shrink-0 px-3 py-2 rounded-lg transition-all",
+              isLoading
+                ? "bg-gray-300 text-gray-500 cursor-wait"
+                : !input.trim()
+                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
+                  : "bg-blue-600 text-white hover:bg-blue-700"
+            )}
           >
-            <Send className="w-5 h-5" />
+            {isLoading ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Send className="w-5 h-5" />
+            )}
           </button>
         </div>
       </div>

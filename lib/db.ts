@@ -88,4 +88,20 @@ export async function initDatabase() {
   await sql`
     ALTER TABLE drafts ADD COLUMN IF NOT EXISTS suggestions JSONB DEFAULT '[]'::jsonb
   `;
+
+  // Chat messages table
+  await sql`
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      draft_id UUID REFERENCES drafts(id) ON DELETE CASCADE,
+      role VARCHAR(20) NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `;
+
+  // Index for chat history lookup
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_draft ON chat_messages(draft_id, created_at)
+  `;
 }

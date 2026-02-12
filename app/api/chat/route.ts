@@ -84,6 +84,21 @@ export async function POST(request: NextRequest) {
     const data = await response.json();
     const assistantMessage = data.choices?.[0]?.message?.content || 'No response';
     
+    // Save messages to history if draftId is provided
+    if (draftId) {
+      try {
+        await sql`
+          INSERT INTO chat_messages (draft_id, role, content, created_at)
+          VALUES 
+            (${draftId}, 'user', ${message}, NOW()),
+            (${draftId}, 'assistant', ${assistantMessage}, NOW())
+        `;
+      } catch (e) {
+        // Table might not exist yet, ignore
+        console.error('Failed to save chat history:', e);
+      }
+    }
+    
     return NextResponse.json({ 
       response: assistantMessage,
     });
